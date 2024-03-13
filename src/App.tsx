@@ -73,11 +73,69 @@ function App() {
   };
 
   useEffect(() => {
+    // Load state from storage
+    const storedState = JSON.parse(localStorage.getItem('appState'));
+    if (storedState) {
+      setSenderAddress(storedState.senderAddress);
+      setRecipientAddress(storedState.recipientAddress);
+      setTokenAmount(storedState.tokenAmount);
+      setContractAddress(storedState.contractAddress);
+      setTransactionHash(storedState.transactionHash);
+      setTransactionStatus(storedState.transactionStatus);
+      setError(storedState.error);
+    }
+
     if (window.ethereum) {
       detectWalletChange();
       detectNetworkChange();
     }
+
+    // Listen for changes in storage from other tabs
+    window.addEventListener('storage', handleStorageChange);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+    };
   }, []);
+
+  useEffect(() => {
+    // Save state to storage
+    localStorage.setItem('appState', JSON.stringify({
+      senderAddress,
+      recipientAddress,
+      tokenAmount,
+      contractAddress,
+      transactionHash,
+      transactionStatus,
+      error
+    }));
+
+    // Update storage in other tabs
+    window.localStorage.setItem('appState', JSON.stringify({
+      senderAddress,
+      recipientAddress,
+      tokenAmount,
+      contractAddress,
+      transactionHash,
+      transactionStatus,
+      error
+    }));
+  }, [senderAddress, recipientAddress, tokenAmount, contractAddress, transactionHash, transactionStatus, error]);
+
+  const handleStorageChange = (event) => {
+    if (event.key === 'appState') {
+      const storedState = JSON.parse(event.newValue);
+      if (storedState) {
+        setSenderAddress(storedState.senderAddress);
+        setRecipientAddress(storedState.recipientAddress);
+        setTokenAmount(storedState.tokenAmount);
+        setContractAddress(storedState.contractAddress);
+        setTransactionHash(storedState.transactionHash);
+        setTransactionStatus(storedState.transactionStatus);
+        setError(storedState.error);
+      }
+    }
+  };
 
   return (
     <Container>
