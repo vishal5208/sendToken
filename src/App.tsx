@@ -1,17 +1,62 @@
 import React, { useState, useEffect } from 'react';
 import { ethers } from 'ethers';
-import { Container, Typography, Grid, Box, IconButton, Button, CircularProgress , TextField} from '@mui/material';
+import { Container, Typography, Grid, Box, IconButton, Button, CircularProgress, TextField } from '@mui/material';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 
 function App() {
-  const [senderAddress, setSenderAddress] = useState('');
-  const [recipientAddress, setRecipientAddress] = useState('');
-  const [tokenAmount, setTokenAmount] = useState('');
-  const [contractAddress, setContractAddress] = useState('');
+  const initialState = {
+    senderAddress: '',
+    recipientAddress: '',
+    tokenAmount: '',
+    contractAddress: '',
+    transactionHash: null,
+    transactionStatus: '',
+    error: null
+  };
+
+  const [senderAddress, setSenderAddress] = useState(() => localStorage.getItem('senderAddress') || initialState.senderAddress);
+  const [recipientAddress, setRecipientAddress] = useState(() => localStorage.getItem('recipientAddress') || initialState.recipientAddress);
+  const [tokenAmount, setTokenAmount] = useState(() => localStorage.getItem('tokenAmount') || initialState.tokenAmount);
+  const [contractAddress, setContractAddress] = useState(() => localStorage.getItem('contractAddress') || initialState.contractAddress);
   const [provider, setProvider] = useState(null);
-  const [transactionHash, setTransactionHash] = useState('');
-  const [transactionStatus, setTransactionStatus] = useState('');
-  const [error, setError] = useState(null);
+  const [transactionHash, setTransactionHash] = useState(() => localStorage.getItem('transactionHash') || initialState.transactionHash);
+  const [transactionStatus, setTransactionStatus] = useState(initialState.transactionStatus);
+  const [error, setError] = useState(initialState.error);
+
+  useEffect(() => {
+    // Load state from storage
+    if (window.ethereum) {
+      detectWalletChange();
+    }
+
+    if (transactionHash) {
+      checkTransactionStatus(); // Check transaction status if transaction hash exists
+    }
+
+    // Check transaction status on component mount
+    if (transactionHash) {
+      checkTransactionStatusOnMount();
+    }
+  }, []);
+
+  useEffect(() => {
+    // Save state to localStorage
+    localStorage.setItem('senderAddress', senderAddress);
+    localStorage.setItem('recipientAddress', recipientAddress);
+    localStorage.setItem('tokenAmount', tokenAmount);
+    localStorage.setItem('contractAddress', contractAddress);
+    if (transactionHash) {
+      localStorage.setItem('transactionHash', transactionHash);
+    } else {
+      localStorage.removeItem('transactionHash');
+    }
+  }, [senderAddress, recipientAddress, tokenAmount, contractAddress, transactionHash]);
+
+  useEffect(() => {
+    if (window.ethereum && !provider) {
+      connectWallet();
+    }
+  }, []);
 
   // Function to connect the wallet
   const connectWallet = async () => {
@@ -42,10 +87,17 @@ function App() {
       setTransactionStatus('Pending');
       const tokenContract = new ethers.Contract(contractAddress, ERC20_ABI, provider.getSigner());
       const tx = await tokenContract.transfer(recipientAddress, ethers.utils.parseUnits(tokenAmount, 'ether'));
-      setTransactionHash(tx.hash);
+      setTransactionHash(tx.hash); // Set new transaction hash
 
-      await tx.wait();
-      setTransactionStatus('Confirmed');
+      // Listen for transaction confirmation
+      const receipt = await tx.wait();
+      if (receipt.status === 1) {
+        setTransactionStatus('Confirmed');
+        setTransactionHash(null); // Reset transaction hash if confirmed
+      } else {
+        setTransactionStatus('Failed');
+        setError('Transaction failed');
+      }
     } catch (error) {
       console.error('Error sending tokens:', error);
       setError(error.message);
@@ -65,77 +117,44 @@ function App() {
     });
   };
 
-  // Function to detect network change
-  const detectNetworkChange = () => {
-    window.ethereum.on('networkChanged', (networkId) => {
-      // Handle network change
-    });
-  };
-
-  useEffect(() => {
-    // Load state from storage
-    const storedState = JSON.parse(localStorage.getItem('appState'));
-    if (storedState) {
-      setSenderAddress(storedState.senderAddress);
-      setRecipientAddress(storedState.recipientAddress);
-      setTokenAmount(storedState.tokenAmount);
-      setContractAddress(storedState.contractAddress);
-      setTransactionHash(storedState.transactionHash);
-      setTransactionStatus(storedState.transactionStatus);
-      setError(storedState.error);
-    }
-
-    if (window.ethereum) {
-      detectWalletChange();
-      detectNetworkChange();
-    }
-
-    // Listen for changes in storage from other tabs
-    window.addEventListener('storage', handleStorageChange);
-
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-    };
-  }, []);
-
-  useEffect(() => {
-    // Save state to storage
-    localStorage.setItem('appState', JSON.stringify({
-      senderAddress,
-      recipientAddress,
-      tokenAmount,
-      contractAddress,
-      transactionHash,
-      transactionStatus,
-      error
-    }));
-
-    // Update storage in other tabs
-    window.localStorage.setItem('appState', JSON.stringify({
-      senderAddress,
-      recipientAddress,
-      tokenAmount,
-      contractAddress,
-      transactionHash,
-      transactionStatus,
-      error
-    }));
-  }, [senderAddress, recipientAddress, tokenAmount, contractAddress, transactionHash, transactionStatus, error]);
-
-  const handleStorageChange = (event) => {
-    if (event.key === 'appState') {
-      const storedState = JSON.parse(event.newValue);
-      if (storedState) {
-        setSenderAddress(storedState.senderAddress);
-        setRecipientAddress(storedState.recipientAddress);
-        setTokenAmount(storedState.tokenAmount);
-        setContractAddress(storedState.contractAddress);
-        setTransactionHash(storedState.transactionHash);
-        setTransactionStatus(storedState.transactionStatus);
-        setError(storedState.error);
+  // Function to check transaction status
+  const checkTransactionStatus = async () => {
+    try {
+      const ethereumProvider = window.ethereum;
+      if (!ethereumProvider) {
+        throw new Error('No Ethereum provider found');
       }
+
+      
+      const connectedProvider = new ethers.providers.Web3Provider(ethereumProvider);
+      const txReceipt = await connectedProvider.getTransactionReceipt(transactionHash);
+      if (txReceipt && txReceipt.status === 1) {
+        setTransactionStatus('Confirmed');
+        setTransactionHash(null); 
+      } else if (txReceipt && txReceipt.status === 0) {
+        setTransactionStatus('Failed');
+        setError('Transaction failed');
+      } else {
+        setTransactionStatus('Pending');
+      }
+    } catch (error) {
+      console.error('Error checking transaction status:', error);
+      setError(error.message);
     }
   };
+
+ // Function to check transaction status on component mount
+ const checkTransactionStatusOnMount = async () => {
+  try {
+    while (transactionHash && transactionStatus !== 'Confirmed') {
+      await checkTransactionStatus();
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for 1 second
+    }
+  } catch (error) {
+    console.error('Error checking transaction status on mount:', error);
+  }
+};
+
 
   return (
     <Container>
@@ -201,6 +220,7 @@ function App() {
             </Box>
           )}
           {transactionStatus === 'Confirmed' && <Typography variant="body1">Transaction Confirmed!</Typography>}
+          {transactionStatus === 'Failed' && <Typography variant="body1" color="error">Transaction Failed!</Typography>}
           {error && <Typography variant="body1" color="error">{error}</Typography>}
         </Grid>
         {transactionHash && (
