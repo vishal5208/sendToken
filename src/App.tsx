@@ -22,23 +22,14 @@ function App() {
   const [transactionHash, setTransactionHash] = useState(() => localStorage.getItem('transactionHash') || initialState.transactionHash);
   const [transactionStatus, setTransactionStatus] = useState(initialState.transactionStatus);
   const [error, setError] = useState(initialState.error);
+  const [estimatedTransactionTime, setEstimatedTransactionTime] = useState(() => localStorage.getItem('estimatedTransactionTime') || '');
 
   useEffect(() => {
     // Load state from storage
     if (window.ethereum) {
       detectWalletChange();
     }
-
- 
-
   }, []);
-
-  useEffect(() => {
-    if (transactionHash && transactionStatus === '') {
-      checkTransactionStatusOnMount(); // Call on mount if there's a transaction hash
-    }
-  }, [transactionHash, transactionStatus]); // Include transactionStatus in the dependency array
-  
 
   useEffect(() => {
     // Save state to localStorage
@@ -51,7 +42,18 @@ function App() {
     } else {
       localStorage.removeItem('transactionHash');
     }
-  }, [senderAddress, recipientAddress, tokenAmount, contractAddress, transactionHash]);
+    if (estimatedTransactionTime) {
+      localStorage.setItem('estimatedTransactionTime', estimatedTransactionTime);
+    } else {
+      localStorage.removeItem('estimatedTransactionTime');
+    }
+  }, [senderAddress, recipientAddress, tokenAmount, contractAddress, transactionHash, estimatedTransactionTime]);
+
+  useEffect(() => {
+    if (transactionHash && transactionStatus === '') {
+      checkTransactionStatusOnMount(); // Call on mount if there's a transaction hash
+    }
+  }, [transactionHash, transactionStatus]); // Include transactionStatus in the dependency array
 
   useEffect(() => {
     if (window.ethereum && !provider) {
@@ -78,45 +80,54 @@ function App() {
     }
   };
 
+  
+ 
+
   // Function to send tokens
-  // Function to send tokens
-const sendTokens = async () => {
-  try {
-    if (!provider) {
-      throw new Error('Wallet not connected');
+  const sendTokens = async () => {
+    try {
+      if (!provider) {
+        throw new Error('Wallet not connected');
+      }
+
+      setTransactionStatus('Pending');
+      const tokenContract = new ethers.Contract(contractAddress, ERC20_ABI, provider.getSigner());
+      const tx = await tokenContract.transfer(recipientAddress, ethers.utils.parseUnits(tokenAmount, 'ether'));
+      setTransactionHash(tx.hash); // Set new transaction hash
+
+      console.log(`tx data : ${JSON.stringify(tx, null, 2)}`)
+
+      // Calculate estimated transaction time
+      const gasPrice = await provider.getGasPrice();
+      const gasLimit = tx.gasLimit;
+      const estimatedTime = (gasPrice.mul(gasLimit)).div(ethers.BigNumber.from('1000000000')); // Convert to seconds
+      setEstimatedTransactionTime(estimatedTime.toNumber());
+
+      // Store estimated transaction time in local storage
+      localStorage.setItem('estimatedTransactionTime', estimatedTime.toNumber());
+
+      // Listen for transaction confirmation
+      const receipt = await tx.wait();
+      if (receipt.status === 1) {
+        console.log(transactionHash);
+        setTransactionStatus('Confirmed');
+        setTransactionHash(null); // Reset transaction hash if confirmed
+        localStorage.removeItem('transactionHash');
+        localStorage.removeItem('estimatedTransactionTime');
+      } else {
+        setTransactionStatus('Failed');
+        localStorage.removeItem('transactionHash');
+        localStorage.removeItem('estimatedTransactionTime');
+
+        setError('Transaction failed');
+      }
+    } catch (error) {
+      console.error('Error sending tokens:', error);
+      setError(error.message);
+      setTransactionStatus('Error');
+      localStorage.removeItem('transactionHash');
     }
-
-    setTransactionStatus('Pending');
-    const tokenContract = new ethers.Contract(contractAddress, ERC20_ABI, provider.getSigner());
-    const tx = await tokenContract.transfer(recipientAddress, ethers.utils.parseUnits(tokenAmount, 'ether'));
-    setTransactionHash(tx.hash); // Set new transaction hash
-
-    // Listen for transaction confirmation
-    const receipt = await tx.wait();
-    if (receipt.status === 1) {
-      console.log(transactionHash);
-      setTransactionStatus('Confirmed');
-      setTransactionHash(null); // Reset transaction hash if confirmed
-      localStorage.removeItem('transactionHash');
-
-      
-      // Update localStorage
-      localStorage.removeItem('transactionHash');
-    } else {
-      setTransactionStatus('Failed');
-      localStorage.removeItem('transactionHash');
-
-      setError('Transaction failed');
-    }
-  } catch (error) {
-    console.error('Error sending tokens:', error);
-    setError(error.message);
-    setTransactionStatus('Error');
-    localStorage.removeItem('transactionHash');
-
-  }
-};
-
+  };
 
   // Function to detect wallet change
   const detectWalletChange = () => {
@@ -143,20 +154,16 @@ const sendTokens = async () => {
       }
 
       const connectedProvider = new ethers.providers.Web3Provider(ethereumProvider);
-
-      
-
-
       const txReceipt = await connectedProvider.getTransactionReceipt(transactionHashLocal);
       if (txReceipt && txReceipt.status === 1) {
         console.log(`Check trans status: ${transactionHashLocal}`);
         setTransactionStatus('Confirmed');
         localStorage.removeItem('transactionHashLocal');
-
         setTransactionHash(null);
       } else if (txReceipt && txReceipt.status === 0) {
         setTransactionStatus('Failed');
         localStorage.removeItem('transactionHashLocal');
+        localStorage.removeItem('estimatedTransactionTime');
 
         setError('Transaction failed');
         setTransactionHash(null);
@@ -198,7 +205,6 @@ const sendTokens = async () => {
     // Return cleanup function
     return () => clearInterval(intervalId);
   };
-
 
   return (
     <Container>
@@ -261,6 +267,9 @@ const sendTokens = async () => {
             <Box display="flex" alignItems="center">
               <CircularProgress size={24} />
               <Typography variant="body1" ml={1}>Transaction Pending...</Typography>
+              {estimatedTransactionTime && (
+                <Typography variant="body1" ml={1}>Estimated Time: {estimatedTransactionTime} seconds</Typography>
+              )}
             </Box>
           )}
           {transactionStatus === 'Confirmed' && <Typography variant="body1">Transaction Confirmed!</Typography>}
