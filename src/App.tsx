@@ -29,6 +29,10 @@ function App() {
     if (window.ethereum) {
       detectWalletChange();
     }
+
+    // check for pending transaction in localstorage
+    checkTransactionStatus()
+
   }, []);
 
   useEffect(() => {
@@ -50,6 +54,7 @@ function App() {
   }, [senderAddress, recipientAddress, tokenAmount, contractAddress, transactionHash, estimatedTransactionTime]);
 
   useEffect(() => {
+
     if (transactionHash && transactionStatus === '') {
       checkTransactionStatusOnMount(); // Call on mount if there's a transaction hash
     }
@@ -94,8 +99,6 @@ function App() {
       const tokenContract = new ethers.Contract(contractAddress, ERC20_ABI, provider.getSigner());
       const tx = await tokenContract.transfer(recipientAddress, ethers.utils.parseUnits(tokenAmount, 'ether'));
       setTransactionHash(tx.hash); // Set new transaction hash
-
-      console.log(`tx data : ${JSON.stringify(tx, null, 2)}`)
 
       // Calculate estimated transaction time
       const gasPrice = await provider.getGasPrice();
@@ -144,7 +147,9 @@ function App() {
   // Function to check transaction status
   const checkTransactionStatus = async () => {
     try {
+      console.log("enterd")
       const transactionHashLocal = localStorage.getItem('transactionHash');
+      console.log(transactionHashLocal)
 
       if (!transactionHashLocal) return;
 
